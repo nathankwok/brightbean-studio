@@ -1,0 +1,4 @@
+.env
+.env.*
+deploy/vps/certs/
+.git

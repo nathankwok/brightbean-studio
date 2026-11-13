@@ -1,0 +1,41 @@
+# VPS override: Postgres on Supabase, every port on 127.0.0.1, Caddy behind
+# the Cloudflare Tunnel. Use with docker-compose.yml and docker-compose.prod.yml.
+services:
+  postgres:
+    # Reason: the database is a hosted Supabase project; the profile keeps the
+    # upstream service defined but never started.
+    profiles: ["local-db"]
+    ports: !reset []
+  migrate:
+    # Reason: docker-compose.prod.yml pins DATABASE_URL to the bundled Postgres.
+    environment: !override
+      - DJANGO_SETTINGS_MODULE=config.settings.production
+    depends_on: !reset {}
+    volumes:
+      - ./deploy/vps/certs:/app/certs:ro
+  app:
+    ports: !reset []
+    command: gunicorn config.wsgi:application --bind 0.0.0.0:8000 --workers 1 --threads 4
+    environment:
+      - MALLOC_ARENA_MAX=2
+    volumes:
+      - ./deploy/vps/certs:/app/certs:ro
+  worker:
+    command: python manage.py run_studio_worker --sleep 5
+    environment:
+      - MALLOC_ARENA_MAX=2
+    volumes:
+      - ./deploy/vps/certs:/app/certs:ro
+  caddy:
+    ports: !override
+      - "127.0.0.1:8710:80"
+    volumes:
+      - ./Caddyfile.vps:/etc/caddy/Caddyfile:ro
+    networks:
+      default:
+        ipv4_address: 172.31.71.10
+networks:
+  default:
+    ipam:
+      config:
+        - subnet: 172.31.71.0/24

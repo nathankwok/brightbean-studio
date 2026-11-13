@@ -1,0 +1,28 @@
+{
+	auto_https off
+}
+:80 {
+	handle_path /media/* {
+		header X-Content-Type-Options nosniff
+		@public path /media_library/* /avatars/* /workspaces/icons/*
+		handle @public {
+			root * {$CADDY_MEDIA_ROOT:/app/media}
+			file_server
+		}
+		handle {
+			respond 404
+		}
+	}
+	handle /api/v1/docs* {
+		respond 404
+	}
+	handle /api/v1/openapi.json {
+		respond 404
+	}
+	handle {
+		reverse_proxy app:8000 {
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
+		}
+	}
+}
