@@ -51,7 +51,8 @@ would read production values.
    ```
 
    `DATABASE_URL` takes the pooler string with the password URL-encoded and
-   `?sslmode=verify-full&sslrootcert=/app/certs/supabase-ca.crt` appended.
+   `?sslmode=verify-full&sslrootcert=/app/certs/supabase-ca.crt&conn_max_age=600&conn_health_checks=true`
+   appended. See "Supabase egress" below for the last two.
 
 3. **Start.** `deploy/vps/up.sh`. The `migrate` container runs the migrations
    against Supabase and exits 0 before `app` and `worker` start. The script
@@ -115,10 +116,10 @@ pooler allows 15 connections.
   own malloc arena, up to 8 per CPU core, and memory freed in one arena is not
   reused by another, so a threaded process keeps growing. Two arenas keep the
   resident size close to what the process is using.
-- **`run_studio_worker --sleep 5`** (`worker`). The dispatcher polls the
+- **`run_studio_worker --sleep 60`** (`worker`). The dispatcher polls the
   database every second by default. Over the network to Supabase that is a
-  steady stream of queries and egress; a 5 second poll delays a scheduled post
-  by at most 5 seconds.
+  steady stream of queries and egress (see "Supabase egress" below); a 60
+  second poll delays a scheduled post by at most a minute.
 - **`PUBLISHER_MAX_CONCURRENT_POSTS=2` and
   `PUBLISHER_MAX_CONCURRENT_PLATFORM_PUBLISHES=3`** (`.env`). Each publish
   thread holds its own database connection. These two plus the 4 Gunicorn
@@ -126,3 +127,26 @@ pooler allows 15 connections.
 - **`PUBLISHER_PUBLISH_CONFIRM_TIMEOUT=3600`** (`.env`). A post the platform
   accepted but is still processing (video transcoding) gets up to an hour to
   confirm before it is marked failed.
+
+## Supabase egress
+
+The Supabase Free plan allows 5 GB of egress a month across the whole
+organization, about 166 MB a day. Egress is every byte the database sends
+back, and each new TLS session to the pooler costs several kilobytes of
+handshake on top of the query results.
+
+Two settings keep the stack well under that:
+
+- **`conn_max_age=600&conn_health_checks=true`** on `DATABASE_URL`. Django
+  keeps a connection open for 10 minutes instead of opening a new session for
+  each request or dispatcher poll, and drops one the pooler has closed.
+- **`run_studio_worker --sleep 60`** (see above).
+
+Measured with byte counters on the pooler's addresses inside the `app` and
+`worker` containers: about 296 MB a day with a 5 second poll and no
+connection reuse (a 10 minute window), and about 75 MB a day with both
+settings (a full hour, including the hourly analytics sync). Most of what remains is the recurring tasks
+(the publish cycle every 15 seconds, three more every minute): each one closes
+its connections when it ends (`apps/common/db.py`, `in_worker_thread`), so it
+opens a fresh session next time. The usage page in the Supabase dashboard
+shows the month so far and refreshes hourly.

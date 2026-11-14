@@ -21,7 +21,7 @@ services:
     volumes:
       - ./deploy/vps/certs:/app/certs:ro
   worker:
-    command: python manage.py run_studio_worker --sleep 5
+    command: python manage.py run_studio_worker --sleep 60
     environment:
       - MALLOC_ARENA_MAX=2
     volumes:
